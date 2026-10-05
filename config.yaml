@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+name: arena-pulse-indexer
+description: >-
+  HyperIndex indexer for Contex Arena (Monad testnet) — indexes bets, agent
+  trades, rounds and price updates, and maintains derived analytics entities
+  (bettor leaderboards, per-round-per-agent stats). Built for the Monad
+  Metropolis "Best Use of Envio" bounty.
+disable_default_cross_chain: true
+
+chains:
+  - id: 10143
+    # ContextArena was deployed at block 66746181 (binary-searched via
+    # eth_getCode on https://testnet-rpc.monad.xyz); start 1000 blocks
+    # earlier as a safety margin.
+    start_block: 66745181
+    contracts:
+      - name: ContextArena
+        address:
+          - "0x3B1D866777A8f26494249DfA7047f1EC9FFAb563"
+        events:
+          - event: AgentRegistered(uint256 indexed agentId, string name, address wallet)
+          - event: RoundStarted(uint256 indexed roundId, uint256 endTime, uint256 startPrice)
+          - event: PriceUpdated(uint256 indexed roundId, uint256 price)
+          - event: AgentTrade(uint256 indexed roundId, uint256 indexed agentId, bool isBuy, uint256 amountIn, uint256 amountOut, uint256 price)
+          - event: BetPlaced(uint256 indexed roundId, address indexed bettor, uint256 indexed agentId, uint256 amount)
+          - event: RoundSettled(uint256 indexed roundId, uint256 indexed winnerAgentId, uint256 endPrice, bool refundMode)
+          - event: Claimed(uint256 indexed roundId, address indexed bettor, uint256 amount)

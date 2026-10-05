@@ -1,0 +1,99 @@
+# Arena Pulse — GraphQL schema
+#
+# Design notes (for the "Best Use of Envio" judges):
+# - Event entities (Trade, PricePoint) are raw logs with unique
+#   chainId_block_logIndex ids.
+# - Bet is keyed by (roundId, bettor, agentId) so repeated BetPlaced events
+#   accumulate exactly like the contract's `betOf[round][bettor][agent]`
+#   mapping — one row per position, not per transaction.
+# - Bettor, RoundAgentStat and the counters on Agent/Round are DERIVED
+#   aggregates maintained in the handlers (Envio disables GraphQL
+#   aggregations on hosted plans, so we precompute at index time).
+# - Relationships use plain `<name>` string fields holding the related
+#   entity id, with @derivedFrom(field: "<name>") on the parent side.
+
+# ── AI trading agents ─────────────────────────────────────────────
+type Agent {
+  id: ID! # agentId as a decimal string
+  name: String!
+  wallet: String!
+  registeredAt: BigInt!
+  totalTrades: Int!
+  totalBuyVolume: BigInt! # sum of amountIn over buys (wei)
+  totalSellVolume: BigInt! # sum of amountIn over sells (wei)
+  roundsWon: Int!
+  trades: [Trade!]! @derivedFrom(field: "agent")
+  bets: [Bet!]! @derivedFrom(field: "agent")
+}
+
+# ── Betting rounds ────────────────────────────────────────────────
+type Round {
+  id: ID! # roundId as a decimal string
+  startTime: BigInt!
+  endTime: BigInt!
+  startPrice: BigInt!
+  endPrice: BigInt! # 0 until settled
+  status: String! # LIVE | SETTLED | REFUND
+  winnerAgentId: String # null until settled
+  totalVolume: BigInt! # sum of all bets in the round (wei)
+  betCount: Int! # number of BetPlaced events
+  tradeCount: Int! # number of AgentTrade events
+  settledAt: BigInt # null until settled
+  bets: [Bet!]! @derivedFrom(field: "round")
+  trades: [Trade!]! @derivedFrom(field: "round")
+  pricePoints: [PricePoint!]! @derivedFrom(field: "round")
+}
+
+# ── Spectator bets (one row per bettor × round × agent) ───────────
+type Bet {
+  id: ID! # "{roundId}-{bettor}-{agentId}"
+  round: String! @index
+  bettor: String! @index
+  agent: String! @index
+  amount: BigInt! # total wagered on this position (wei)
+  betTxCount: Int! # how many BetPlaced events were aggregated
+  timestamp: BigInt! # first bet placement time
+  claimed: Boolean!
+  claimAmount: BigInt! # payout attributed to this position (wei, 0 until claimed)
+  won: Boolean! # true when the round settled (not refund) and this bet backed the winner
+}
+
+# ── Spectators (aggregated across all rounds) ─────────────────────
+type Bettor {
+  id: ID! # wallet address
+  totalWagered: BigInt!
+  totalClaimed: BigInt!
+  betCount: Int! # number of BetPlaced events
+  winCount: Int! # rounds won (settled, non-refund claims)
+  claimCount: Int! # rounds claimed (incl. refunds)
+  bets: [Bet!]! @derivedFrom(field: "bettor")
+}
+
+# ── Agent trades ──────────────────────────────────────────────────
+type Trade {
+  id: ID! # "{chainId}_{blockNumber}_{logIndex}"
+  round: String! @index
+  agent: String! @index
+  isBuy: Boolean!
+  amountIn: BigInt!
+  amountOut: BigInt!
+  price: BigInt!
+  timestamp: BigInt!
+}
+
+# ── Price feed ticks (master pushes every ~30s) ───────────────────
+type PricePoint {
+  id: ID! # "{chainId}_{blockNumber}_{logIndex}"
+  round: String! @index
+  price: BigInt!
+  timestamp: BigInt!
+}
+
+# ── Per-round-per-agent betting stats (aggregated) ────────────────
+type RoundAgentStat {
+  id: ID! # "{roundId}-{agentId}"
+  round: String! @index
+  agent: String! @index
+  volume: BigInt! # total MON bet on this agent in this round (wei)
+  betCount: Int!
+}
